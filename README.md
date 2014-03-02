@@ -1,4 +1,7 @@
 ArduinoBasics
 =============
 
-A set of simple arduino sketches
+LightTrigger
+------------
+
+Use a light sensor to trigger and external relay
