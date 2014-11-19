@@ -31,7 +31,7 @@
  * prevents flickering, and if the trigger is turning on something that
  * produces light this can be used to stop if from turning itself off.
  */
-#define ON_THRESHOLD  400
+#define ON_THRESHOLD  500
 #define OFF_THRESHOLD (ON_THRESHOLD + 50)
 
 /* Period to wait between readings, in milliseconds */
