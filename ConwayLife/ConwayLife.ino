@@ -38,6 +38,7 @@ uint16_t XY( uint8_t x, uint8_t y)
   return (y * width) + x;  
 }
 
+uint32_t last_reset = 0;
 void initialize(uint32_t threshold) {
   DEBUG1_VALUELN("Initing with threshold:", threshold);
   for (int x = 0; x < width; x++) {
@@ -47,6 +48,8 @@ void initialize(uint32_t threshold) {
       }
     }
   }
+
+  last_reset = millis();
 }
 
 byte neighbors(byte x, byte y) {
@@ -70,19 +73,16 @@ byte neighbors(byte x, byte y) {
   return count;
 }
 
+uint16_t prev_changes = 0;
 void loop() {
-  uint32_t now = millis();
+  uint32_t elapsed = millis() - last_reset;
 
   uint16_t changes = conways_rules();
-  DEBUG1_VALUELN("Changes:", changes);
-  if (changes == 0) {
-    delay(5000);
-    initialize(random(0,10));
-  }
-
+  uint16_t count = 0;
   for (int x = 0; x < width; x++) {
     for (int y = 0; y < height; y++) {
       if (cells[x][y] & NEXT) {
+        count++;
         cells[x][y] = CURRENT;
         leds[XY(x, y)] = CRGB(255, 0, 0);
       } else {
@@ -91,6 +91,15 @@ void loop() {
       }
     }
   }
+
+  DEBUG1_VALUE("Count:", count);
+  DEBUG1_VALUELN(" Changes:", changes);
+  if ((changes == 0) |
+      ((prev_changes == changes) && (elapsed > 30 * 1000))) {
+    delay(5000);
+    initialize(random(0,10));
+  }
+  prev_changes = changes;
 
   FastLED.show();
   delay(500);
