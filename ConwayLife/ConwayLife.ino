@@ -1,14 +1,15 @@
 #include <FastLED.h>
+#include <math.h>
 
 #define DEBUG_LEVEL DEBUG_HIGH
 #include <Debug.h>
 
-#define LED_PIN  5
+#define LED_PIN  6
 
 #define COLOR_ORDER GRB
 #define CHIPSET     WS2812B
 
-#define BRIGHTNESS 255
+#define BRIGHTNESS 128
 
 const uint8_t width = 20;
 const uint8_t height = 12;
@@ -29,7 +30,7 @@ void setup() {
 
   randomSeed(analogRead(0));
 
-  initialize(random(0,10));
+  initialize(random(20,50));
 }
 
 
@@ -43,66 +44,109 @@ void initialize(uint32_t threshold) {
   DEBUG1_VALUELN("Initing with threshold:", threshold);
   for (int x = 0; x < width; x++) {
     for (int y = 0; y < height; y++) {
-      if (random(0,10) < threshold) {
-        cells[x][y] = NEXT;
+      if (random(0,100) < threshold) {
+        cells[x][y] = CURRENT;
+        leds[XY(x, y)] = CRGB(255, 0, 0);
+      } else {
+        leds[XY(x, y)] = CRGB(0, 0, 0);
       }
     }
   }
 
+  FastLED.show();
   last_reset = millis();
 }
 
 byte neighbors(byte x, byte y) {
   byte count = 0;
 
-  if (x > 0) {
-    if (cells[x-1][y] & CURRENT) count++;
-    if ((y > 0) && (cells[x-1][y-1] & CURRENT)) count++;
-    if ((y < height - 1) && (cells[x-1][y+1] & CURRENT)) count++;
-  }
+  if (cells[x-1 % width][y] & CURRENT) count++;
+  if ((cells[x-1 % width][y-1 % height] & CURRENT)) count++;
+  if ((cells[x-1 % width][y+1 % height] & CURRENT)) count++;
 
-  if ((y > 0) && (cells[x][y-1] & CURRENT)) count++;
-  if ((y < height - 1) && (cells[x][y+1] & CURRENT)) count++;
+  if ((cells[x][y-1 % height] & CURRENT)) count++;
+  if ((cells[x][y+1 % height] & CURRENT)) count++;
 
-  if (x < width - 1) {
-    if (cells[x+1][y] & CURRENT) count++;
-    if ((y > 0) && (cells[x+1][y-1] & CURRENT)) count++;
-    if ((y < height - 1) && (cells[x+1][y+1] & CURRENT)) count++;
-  }
-
+  if (cells[x+1 % width][y] & CURRENT) count++;
+  if ((cells[x+1 % width][y-1 % height] & CURRENT)) count++;
+  if ((cells[x+1 % width][y+1 % height] & CURRENT)) count++;
+  
   return count;
 }
 
 uint16_t prev_changes = 0;
 void loop() {
-  uint32_t elapsed = millis() - last_reset;
-
   uint16_t changes = conways_rules();
   uint16_t count = 0;
+
+  DEBUG1_VALUE(" Changes:", changes);
+
+  boolean done = (changes == 0);
+  float cycles = 0;
+  while (!done) {
+    cycles += 1;
+    for (int x = 0; x < width; x++) {
+      for (int y = 0; y < height; y++) {
+        if (cells[x][y] & NEXT) {
+          leds[XY(x, y)] += CRGB(ceil(cycles/8), 0, 0);
+
+          if (!(cells[x][y] & CURRENT) && (leds[XY(x, y)].red == 255)) {
+            done = true;
+          }
+        } else if (cells[x][y] & CURRENT) {
+          leds[XY(x, y)] -= CRGB(10, 0, 0);
+          if (leds[XY(x, y)].red == 0) {
+            done = true;
+          }
+        } else {
+          leds[XY(x, y)] = CRGB(0, 0, 0);
+        }
+      }
+    }
+
+    FastLED.show();
+    delay(8);
+  }
+
   for (int x = 0; x < width; x++) {
     for (int y = 0; y < height; y++) {
       if (cells[x][y] & NEXT) {
-        count++;
-        cells[x][y] = CURRENT;
         leds[XY(x, y)] = CRGB(255, 0, 0);
+        cells[x][y] = CURRENT;
+        count++;
       } else {
-        cells[x][y] = 0;
         leds[XY(x, y)] = CRGB(0, 0, 0);
+        cells[x][y] = 0;
       }
     }
   }
-
-  DEBUG1_VALUE("Count:", count);
-  DEBUG1_VALUELN(" Changes:", changes);
-  if ((changes == 0) |
-      ((prev_changes == changes) && (elapsed > 30 * 1000))) {
-    delay(5000);
-    initialize(random(0,10));
-  }
-  prev_changes = changes;
-
   FastLED.show();
-  delay(500);
+
+
+  DEBUG1_VALUE(" Count:", count);
+  DEBUG1_VALUELN(" Cycles:", cycles);
+
+  static uint32_t repeating_start = 0;
+  uint32_t elapsed = 0;
+  if (prev_changes == changes) {
+    if (repeating_start) {
+      elapsed = millis() - repeating_start;
+    } else {
+      repeating_start = millis();
+    }
+  } else {
+    repeating_start = 0;
+  }
+
+  if ((changes == 0) ||
+      ((prev_changes == changes) && (elapsed > 15 * 1000))) {
+    delay(5000);
+    initialize(random(20,50));
+    prev_changes = 0;
+  } else {
+    prev_changes = changes;
+  }
+
 }
 
 uint16_t conways_rules() {
