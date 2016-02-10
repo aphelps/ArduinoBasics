@@ -10,6 +10,8 @@
 #include <Debug.h>
 
 #include <PID_v1.h>
+#include <PID_AutoTune_v0.h>
+
 #include <Adafruit_MAX31855.h>
 #include <Wire.h>
 #include <SerialCLI.h>
@@ -36,6 +38,19 @@ double targetTemp, thermocoupleTemp, pidOutput;
 //double Kp=1, Ki=0.05, Kd=0.25;
 double Kp=1, Ki=1, Kd=0.1;
 PID myPID(&thermocoupleTemp, &pidOutput, &targetTemp, Kp, Ki, Kd, DIRECT);
+
+/*
+ * PID autotuning
+ */
+byte ATuneModeRemember=2;
+
+double aTuneStep=50, aTuneNoise=1, aTuneStartValue=100;
+unsigned int aTuneLookBack=20;
+
+boolean tuning = false;
+
+PID_ATune aTune(&thermocoupleTemp, &pidOutput);
+
 
 SerialCLI serialcli(128, cliHandler);
 
@@ -76,15 +91,20 @@ void loop() {
     thermocoupleTemp = -0;
   }
 
-  // Update pid outout
-  myPID.Compute();
+  if (tuning) {
+    checkTuning();
+  } else {
+    // Update pid outout
+    myPID.Compute();
+  }
+
   analogWrite(heatPin, pidOutput);
 
   update_LCD();
   update_serial();
 }
 
-#define SERIAL_REFRESH_PERIOD 250
+#define SERIAL_REFRESH_PERIOD 500
 void update_serial() {
   static unsigned long last_update_ms = millis();
 
@@ -94,7 +114,14 @@ void update_serial() {
     DEBUG3_VALUE("] Internal Temp:", thermocouple.readInternal());
     DEBUG3_VALUE(" C:", thermocoupleTemp);
     DEBUG3_VALUE(" F:", thermocouple.readFarenheit());
-    DEBUG3_VALUELN(" pid:", pidOutput);
+    DEBUG3_VALUE(" pid:", pidOutput);
+    DEBUG3_VALUE(" Kp:", Kp);
+    DEBUG3_VALUE(" Ki:", Ki);
+    DEBUG3_VALUE(" Kd:", Kd);
+
+    DEBUG3_VALUE(" tuning:", tuning);
+
+    DEBUG_PRINT_END();
   }
 }
 
@@ -123,16 +150,94 @@ void update_LCD() {
 /*
  * Usage:
  *   c <temp>: Set the target temperature in Celsius
+ *   a <temp>: Start autotune with target temperature
+ *   s:        Disable autotune
  */
 void cliHandler(char **tokens, byte numtokens) {
   switch (tokens[0][0]) {
     case 'c': {
       if (numtokens < 2) return;
       int val = atoi(tokens[1]);
-      Serial.print("Setting temp to C=");
-      Serial.println(val);
+      DEBUG1_VALUELN("Setting temp to C=", val);
       targetTemp = val;
       break;
     }
+
+    case 'a': {
+      if (numtokens < 2) return;
+
+      if (tuning) {
+        DEBUG1_PRINTLN("Autotune is already running");
+      } else {
+        int val = atoi(tokens[1]);
+        DEBUG1_VALUELN("Starting autotune with temp to C=", val);
+        targetTemp = val;
+
+        changeAutoTune();
+      }
+      break;
+    }
+
+    case 's': {
+      if (!tuning) {
+        DEBUG1_PRINTLN("Autotune is not running");
+      } else {
+        DEBUG1_PRINTLN("Disabling autotune");
+        changeAutoTune();
+      }
+    }
+
   }
+}
+
+
+/*
+ * PID autotuning code:
+ *   From https://github.com/br3ttb/Arduino-PID-AutoTune-Library/blob/master/PID_AutoTune_v0/Examples/AutoTune_Example/AutoTune_Example.pde
+ */
+
+void checkTuning() {
+  int val = aTune.Runtime();
+  if (val != 0) {
+    tuning = false;
+  }
+
+  if (!tuning) {
+    //we're done, set the tuning parameters
+    Kp = aTune.GetKp();
+    Ki = aTune.GetKi();
+    Kd = aTune.GetKd();
+
+    DEBUG1_VALUE("Tuning done.  Kp:", Kp);
+    DEBUG1_VALUE("Ki:", Ki);
+    DEBUG1_VALUE("Kd:", Kd);
+    DEBUG_PRINT_END();
+
+    myPID.SetTunings(Kp, Ki, Kd);
+    AutoTuneHelper(false);
+  }
+}
+
+void changeAutoTune()
+{
+  if (!tuning) {
+    //Set the output to the desired starting frequency.
+    pidOutput=aTuneStartValue;
+    aTune.SetNoiseBand(aTuneNoise);
+    aTune.SetOutputStep(aTuneStep);
+    aTune.SetLookbackSec((int)aTuneLookBack);
+    AutoTuneHelper(true);
+    tuning = true;
+  } else { //cancel autotune
+    aTune.Cancel();
+    tuning = false;
+    AutoTuneHelper(false);
+  }
+}
+
+void AutoTuneHelper(boolean start) {
+  if(start)
+    ATuneModeRemember = myPID.GetMode();
+  else
+    myPID.SetMode(ATuneModeRemember);
 }
