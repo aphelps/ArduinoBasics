@@ -26,8 +26,9 @@ int thermoCS = 5;
 int thermoCLK = 6;
 Adafruit_MAX31855 thermocouple(thermoCLK, thermoCS, thermoDO);
 
-int trigLED = 9;
-int heatPin = 12;
+int trigLED = 10;  // Must be PWM
+int heatPin = 9; // Must be PWM
+
 int debugLED = 13;
 
 
@@ -36,7 +37,7 @@ double targetTemp, thermocoupleTemp, pidOutput;
 // TODO: Figure out proper tuning parameters
 //double Kp=2, Ki=5, Kd=1;
 //double Kp=1, Ki=0.05, Kd=0.25;
-double Kp=1, Ki=1, Kd=0.1;
+double Kp=1, Ki=0.5, Kd=0.1;
 PID myPID(&thermocoupleTemp, &pidOutput, &targetTemp, Kp, Ki, Kd, DIRECT);
 
 /*
@@ -51,8 +52,12 @@ boolean tuning = false;
 
 PID_ATune aTune(&thermocoupleTemp, &pidOutput);
 
-
 SerialCLI serialcli(128, cliHandler);
+
+/*
+ * Reflow parameters
+ */
+boolean reflow = false;
 
 void setup() {
   Serial.begin(9600);
@@ -77,6 +82,11 @@ void setup() {
   targetTemp = 100;
   myPID.SetMode(AUTOMATIC);
 
+  // Configure autotune
+  aTune.SetControlType(1); // Set to PID
+  aTune.SetLookbackSec(60); // Needs to be high for toasters?
+  //TODO: aTune.SetNoiseBand(???);
+
   DEBUG1_PRINTLN("AMP's Reflow Toaster initialized");
 }
 
@@ -94,11 +104,17 @@ void loop() {
   if (tuning) {
     checkTuning();
   } else {
+    if (reflow) {
+      // If reflow set appropriate reflow
+      adjustReflow();
+    }
+
     // Update pid outout
     myPID.Compute();
   }
 
   analogWrite(heatPin, pidOutput);
+  analogWrite(trigLED, pidOutput);
 
   update_LCD();
   update_serial();
@@ -114,12 +130,17 @@ void update_serial() {
     DEBUG3_VALUE("] Internal Temp:", thermocouple.readInternal());
     DEBUG3_VALUE(" C:", thermocoupleTemp);
     DEBUG3_VALUE(" F:", thermocouple.readFarenheit());
+    DEBUG3_VALUE(" Set:", targetTemp);
     DEBUG3_VALUE(" pid:", pidOutput);
     DEBUG3_VALUE(" Kp:", Kp);
     DEBUG3_VALUE(" Ki:", Ki);
     DEBUG3_VALUE(" Kd:", Kd);
 
     DEBUG3_VALUE(" tuning:", tuning);
+
+    if (reflow) {
+      reflow_display();
+    }
 
     DEBUG_PRINT_END();
   }
@@ -151,10 +172,27 @@ void update_LCD() {
  * Usage:
  *   c <temp>: Set the target temperature in Celsius
  *   a <temp>: Start autotune with target temperature
- *   s:        Disable autotune
+ *   R:        Start reflow
+ *   s:        Disable autotune or reflow
+ *   k <p> <i> <d> : Set PID values
  */
 void cliHandler(char **tokens, byte numtokens) {
   switch (tokens[0][0]) {
+    case 'k': {
+      if (numtokens < 4) return;
+      double val = atof(tokens[1]);
+      Kp = val;
+      val = atof(tokens[2]);
+      Ki = val;
+      val = atof(tokens[3]);
+      Kd = val;
+      myPID.SetTunings(Kp, Ki, Kd);
+      DEBUG1_VALUE("New Kp:", Kp);
+      DEBUG1_VALUE("Ki:", Ki);
+      DEBUG1_VALUELN("Kd:", Kd);
+      break;
+    }
+
     case 'c': {
       if (numtokens < 2) return;
       int val = atoi(tokens[1]);
@@ -180,11 +218,28 @@ void cliHandler(char **tokens, byte numtokens) {
 
     case 's': {
       if (!tuning) {
-        DEBUG1_PRINTLN("Autotune is not running");
       } else {
         DEBUG1_PRINTLN("Disabling autotune");
         changeAutoTune();
       }
+      if (reflow) {
+        stopReflow();
+      }
+      break;
+    }
+
+    case 'R': {
+      if (tuning) {
+        DEBUG1_PRINT("Can't start reflow during autotune");
+        break;
+      }
+
+      if (reflow) {
+        DEBUG1_PRINTLN("Reflow is already running");
+      } else {
+        startReflow();
+      }
+      break;
     }
 
   }
@@ -228,16 +283,94 @@ void changeAutoTune()
     aTune.SetLookbackSec((int)aTuneLookBack);
     AutoTuneHelper(true);
     tuning = true;
+    DEBUG3_PRINTLN("TUNING ON");
   } else { //cancel autotune
     aTune.Cancel();
     tuning = false;
     AutoTuneHelper(false);
+    DEBUG3_PRINTLN("TUNING OFF");
   }
 }
 
 void AutoTuneHelper(boolean start) {
-  if(start)
+  if (start)
     ATuneModeRemember = myPID.GetMode();
   else
     myPID.SetMode(ATuneModeRemember);
+}
+
+/*
+ * Reflow!
+ */
+typedef struct {
+  byte mode;
+  unsigned long period_ms;
+  int targetTemp;
+} reflow_phase_t;
+
+
+
+reflow_phase_t reflow_phases[] = {
+        { 0, 90000, 150 }, // Ramp up
+        { 1, 60000, 200 }, // Soak
+        { 2, 30000, 240 }, // Reflow
+        { 3, 60000, 0   }  // Cooldown
+};
+#define NUM_PHASES (sizeof (reflow_phases) / sizeof (reflow_phase_t))
+
+
+int current_phase = -1;
+reflow_phase_t *phase = NULL;
+
+unsigned long phase_start_ms = 0;
+unsigned long phase_elapsed_ms = 0;
+
+void startReflow() {
+  reflow = true;
+  setPhase(0);
+  DEBUG1_PRINTLN("REFLOW STARTED");
+}
+
+void stopReflow() {
+  reflow = false;
+  phase = NULL;
+  targetTemp = 0;
+  DEBUG1_PRINTLN("REFLOW STOPPED");
+}
+
+// Set the current phase
+void setPhase(int new_phase) {
+  current_phase = new_phase;
+  if ((current_phase >= NUM_PHASES) || (new_phase < 0)) {
+    stopReflow();
+    current_phase = -1;
+    phase = NULL;
+  } else {
+    phase = &reflow_phases[current_phase];
+    phase_start_ms = millis();
+    phase_elapsed_ms = 0;
+  }
+}
+
+void adjustReflow() {
+  unsigned long now = millis();
+  phase_elapsed_ms = now - phase_start_ms;
+
+  // Set the temperature
+  targetTemp = phase->targetTemp;
+
+  // Check if the phase should be advanced
+  if (phase_elapsed_ms > phase->period_ms) {
+    setPhase(current_phase + 1);
+  }
+}
+
+void reflow_display() {
+  DEBUG3_VALUE(" phase:", current_phase);
+  if (phase) {
+    DEBUG3_VALUE(" mode:", phase->mode);
+    DEBUG3_VALUE(" period:", phase->period_ms);
+    DEBUG3_VALUE(" temp:", phase->targetTemp);
+  }
+  DEBUG3_VALUE(" elapsed:", phase_elapsed_ms);
 }
