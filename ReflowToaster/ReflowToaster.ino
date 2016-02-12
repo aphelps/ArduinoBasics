@@ -38,6 +38,7 @@ double targetTemp, thermocoupleTemp, pidOutput;
 //double Kp=2, Ki=5, Kd=1;
 //double Kp=1, Ki=0.05, Kd=0.25;
 double Kp=1, Ki=0.5, Kd=0.1;
+//double Kp=1, Ki=0.25, Kd=0.25;
 PID myPID(&thermocoupleTemp, &pidOutput, &targetTemp, Kp, Ki, Kd, DIRECT);
 
 /*
@@ -79,7 +80,7 @@ void setup() {
 
   // Initialized the PID controller and turn it on
   thermocoupleTemp = thermocouple.readCelsius();
-  targetTemp = 100;
+  targetTemp = 0;
   myPID.SetMode(AUTOMATIC);
 
   // Configure autotune
@@ -309,11 +310,16 @@ typedef struct {
 } reflow_phase_t;
 
 
+// Ramp up to target temp and then immediately move to next phase
+#define MODE_REACH_TEMP 0
+
+// Ramp up to target temp and then hold for the rest of the period
+#define MODE_HOLD_TEMP  1
 
 reflow_phase_t reflow_phases[] = {
-        { 0, 90000, 150 }, // Ramp up
-        { 1, 60000, 200 }, // Soak
-        { 2, 30000, 240 }, // Reflow
+        { MODE_REACH_TEMP, 90000, 150 }, // Ramp up
+        { MODE_HOLD_TEMP,  90000, 200 }, // Soak
+        { MODE_REACH_TEMP, 30000, 225 }, // Reflow
         { 3, 60000, 0   }  // Cooldown
 };
 #define NUM_PHASES (sizeof (reflow_phases) / sizeof (reflow_phase_t))
@@ -322,8 +328,12 @@ reflow_phase_t reflow_phases[] = {
 int current_phase = -1;
 reflow_phase_t *phase = NULL;
 
+boolean phase_increasing;
+boolean phase_done;
+
 unsigned long phase_start_ms = 0;
 unsigned long phase_elapsed_ms = 0;
+
 
 void startReflow() {
   reflow = true;
@@ -349,18 +359,85 @@ void setPhase(int new_phase) {
     phase = &reflow_phases[current_phase];
     phase_start_ms = millis();
     phase_elapsed_ms = 0;
+
+    phase_increasing = (phase->targetTemp > thermocoupleTemp);
+    phase_done = false;
+
+    DEBUG1_VALUE("PHASE SET: ", current_phase);
+    DEBUG1_VALUELN(" INCR:", phase_increasing);
   }
+}
+
+boolean checkPhase() {
+  if (phase_increasing) {
+    // Temperature is being increased
+    if (thermocoupleTemp >= phase->targetTemp) {
+      return true;
+    }
+  } else {
+    if (thermocoupleTemp <= phase->targetTemp) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void adjustReflow() {
   unsigned long now = millis();
   phase_elapsed_ms = now - phase_start_ms;
 
+  boolean advance_phase = false;
+
+  // Check if the period for this phase has passed
+  if (phase_elapsed_ms > phase->period_ms) {
+    advance_phase = true;
+    //DEBUG1_PRINTLN("PERIOD FINISHED");
+  }
+
+  if (checkPhase()) {
+    /*
+     * If the phase temperature has been reached, the set the phase as done.
+     * Depending on the mode we may continue to hold the temperature.
+     */
+    phase_done = true;
+  }
+
   // Set the temperature
-  targetTemp = phase->targetTemp;
+  switch (phase->mode) {
+    case MODE_REACH_TEMP: {
+      /*
+       * For this mode, increase the temperature until it reaches the target and
+       * then proceed to the next phase.  The period is ignored in this mode.
+       */
+      advance_phase = phase_done;
+
+      targetTemp = phase->targetTemp;
+      break;
+    }
+
+    case MODE_HOLD_TEMP: {
+      /*
+       * For this mode, increase the temperature until it reaches the target and
+       * then hold for any period of time that remains.
+       */
+      if (!phase_done) {
+        advance_phase = false;
+      }
+
+      targetTemp = phase->targetTemp;
+      break;
+    }
+
+    default: {
+      targetTemp = phase->targetTemp;
+      break;
+    }
+  }
+
 
   // Check if the phase should be advanced
-  if (phase_elapsed_ms > phase->period_ms) {
+  if (advance_phase) {
     setPhase(current_phase + 1);
   }
 }
@@ -371,6 +448,8 @@ void reflow_display() {
     DEBUG3_VALUE(" mode:", phase->mode);
     DEBUG3_VALUE(" period:", phase->period_ms);
     DEBUG3_VALUE(" temp:", phase->targetTemp);
+    DEBUG3_VALUE(" incr:", phase_increasing);
+    DEBUG3_VALUE(" done:", phase_done);
   }
   DEBUG3_VALUE(" elapsed:", phase_elapsed_ms);
 }
