@@ -21,13 +21,14 @@
 #include <LiquidTWI.h>
 LiquidTWI lcd(0);
 
-int thermoDO = 3;
-int thermoCS = 5;
-int thermoCLK = 6;
+int thermoDO = 12;
+int thermoCS = 8;
+int thermoCLK = 6 ;
 Adafruit_MAX31855 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 int trigLED = 10;  // Must be PWM
-int heatPin = 9; // Must be PWM
+int heatPin = 9;
+   ; // Must be PWM
 
 int debugLED = 13;
 
@@ -96,10 +97,11 @@ void loop() {
   serialcli.checkSerial();
 
   // Read the current temperature
-  thermocoupleTemp = thermocouple.readCelsius();
-  if (isnan(thermocoupleTemp)) {
+  double newTemp = thermocouple.readCelsius();
+  if (isnan(newTemp)) {
     DEBUG_ERR("Something wrong with thermocouple!");
-    thermocoupleTemp = -0;
+  } else {
+    thermocoupleTemp = newTemp;
   }
 
   if (tuning) {
@@ -147,26 +149,20 @@ void update_serial() {
   }
 }
 
-#define LCD_REFRESH_PERIOD 100
-void update_LCD() {
-  static unsigned long last_update_ms = millis();
 
-  unsigned long now = millis();
-  if (now - last_update_ms > LCD_REFRESH_PERIOD) {
-    last_update_ms = now;
-    lcd.setCursor(0, 0);
-    lcd.print("T:");
-    lcd.print((int) thermocoupleTemp);
-    lcd.print("C Set:");
-    lcd.print((int) targetTemp);
-    lcd.print("C   ");
 
-    lcd.setCursor(0, 1);
-
-    lcd.print("PID output: ");
-    lcd.print((int) pidOutput);
-    lcd.print("    ");
-  }
+void print_usage() {
+  Serial.print(F(
+    "\n"
+    "Usage:\n"
+    "  h - print this help\n"
+    "  c <temp>: Set the target temperature in Celsius\n"
+    "  a <temp>: Start autotune with target temperature\n"
+    "  R:        Start reflow\n"
+    "  s:        Stop autotune or reflow\n"
+    "  k <p> <i> <d> : Set PID values\n"
+    "\n"
+  ));
 }
 
 /*
@@ -179,6 +175,11 @@ void update_LCD() {
  */
 void cliHandler(char **tokens, byte numtokens) {
   switch (tokens[0][0]) {
+    case 'h': {
+      print_usage();
+      break;
+    }
+
     case 'k': {
       if (numtokens < 4) return;
       double val = atof(tokens[1]);
@@ -218,8 +219,7 @@ void cliHandler(char **tokens, byte numtokens) {
     }
 
     case 's': {
-      if (!tuning) {
-      } else {
+      if (tuning) {
         DEBUG1_PRINTLN("Disabling autotune");
         changeAutoTune();
       }
@@ -319,7 +319,7 @@ typedef struct {
 reflow_phase_t reflow_phases[] = {
         { MODE_REACH_TEMP, 90000, 150 }, // Ramp up
         { MODE_HOLD_TEMP,  90000, 200 }, // Soak
-        { MODE_REACH_TEMP, 30000, 225 }, // Reflow
+        { MODE_REACH_TEMP, 30000, 235 }, // Reflow
         { 3, 60000, 0   }  // Cooldown
 };
 #define NUM_PHASES (sizeof (reflow_phases) / sizeof (reflow_phase_t))
@@ -452,4 +452,41 @@ void reflow_display() {
     DEBUG3_VALUE(" done:", phase_done);
   }
   DEBUG3_VALUE(" elapsed:", phase_elapsed_ms);
+}
+
+#define LCD_REFRESH_PERIOD 100
+void update_LCD() {
+  static unsigned long last_update_ms = millis();
+
+  unsigned long now = millis();
+  if (now - last_update_ms > LCD_REFRESH_PERIOD) {
+    last_update_ms = now;
+    lcd.setCursor(0, 0);
+    lcd.print("T:");
+    lcd.print((int) thermocoupleTemp);
+    lcd.print("C    ");
+
+    lcd.setCursor(8, 0);
+    lcd.print("Set:");
+    lcd.print((int) targetTemp);
+    lcd.print("C    ");
+
+    lcd.setCursor(0, 1);
+
+    lcd.print("PID:");
+    lcd.print((int) pidOutput);
+    lcd.print("    ");
+
+    lcd.setCursor(8, 1);
+    if (reflow) {
+      lcd.print("Refl:");
+      lcd.print(current_phase);
+      lcd.print("   ");
+    } else if (tuning) {
+      lcd.print("Tuning");
+      lcd.print("   ");
+    } else {
+      lcd.print("            ");
+    }
+  }
 }
