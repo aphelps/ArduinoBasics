@@ -27,8 +27,7 @@ int thermoCLK = 6 ;
 Adafruit_MAX31855 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 int trigLED = 10;  // Must be PWM
-int heatPin = 9;
-   ; // Must be PWM
+int heatPin = 9;   // Must be PWM
 
 int debugLED = 13;
 
@@ -38,8 +37,10 @@ double targetTemp, thermocoupleTemp, pidOutput;
 // TODO: Figure out proper tuning parameters
 //double Kp=2, Ki=5, Kd=1;
 //double Kp=1, Ki=0.05, Kd=0.25;
-double Kp=1, Ki=0.5, Kd=0.1;
-//double Kp=1, Ki=0.25, Kd=0.25;
+//double Kp=1, Ki=0.5, Kd=0.1;  // Way to much inertia/overhead
+//double Kp=1, Ki=0.25, Kd=0.25; //
+//double Kp=1, Ki=0.10, Kd=0.25; // Much slower ramp, need earlier slow down
+double Kp=1, Ki=0.10, Kd=0.50; // Not bad for reflow
 PID myPID(&thermocoupleTemp, &pidOutput, &targetTemp, Kp, Ki, Kd, DIRECT);
 
 /*
@@ -156,23 +157,14 @@ void print_usage() {
     "\n"
     "Usage:\n"
     "  h - print this help\n"
-    "  c <temp>: Set the target temperature in Celsius\n"
-    "  a <temp>: Start autotune with target temperature\n"
-    "  R:        Start reflow\n"
-    "  s:        Stop autotune or reflow\n"
-    "  k <p> <i> <d> : Set PID values\n"
+    "  c <temp>:         Set the target temperature in Celsius\n"
+    "  a <temp>:         Start autotune with target temperature\n"
+    "  R:                Start reflow\n"
+    "  s:                Stop autotune or reflow\n"
+    "  k [<p> <i> <d>]:  Show or Set PID values\n"
     "\n"
   ));
 }
-
-/*
- * Usage:
- *   c <temp>: Set the target temperature in Celsius
- *   a <temp>: Start autotune with target temperature
- *   R:        Start reflow
- *   s:        Disable autotune or reflow
- *   k <p> <i> <d> : Set PID values
- */
 void cliHandler(char **tokens, byte numtokens) {
   switch (tokens[0][0]) {
     case 'h': {
@@ -181,6 +173,12 @@ void cliHandler(char **tokens, byte numtokens) {
     }
 
     case 'k': {
+      if (numtokens == 1) {
+        DEBUG1_VALUE("Current Kp:", Kp);
+        DEBUG1_VALUE("Ki:", Ki);
+        DEBUG1_VALUELN("Kd:", Kd);
+        break;
+      }
       if (numtokens < 4) return;
       double val = atof(tokens[1]);
       Kp = val;
