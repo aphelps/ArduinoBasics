@@ -81,22 +81,29 @@ void initialize(uint32_t threshold) {
   age = 0;
 }
 
-#define CELL(x, y, ix, iy) \
+#define CELL_INCR(x, y, ix, iy)                                    \
   (cells[(x + width + ix) % width][(y + height + iy) % height])
 
-byte neighbors(byte x, byte y) {
+#define CURRENT(c) ( 1 << (c * 2))
+#define NEXT(c)    ( 1 << (c * 2 + 1))
+
+#define CELL_CURRENT(c, x, y) (cells[x][y] & CURRENT(c))
+
+#define CELL_NEXT(c, x, y)    (cells[x][y] & NEXT(c))
+
+byte neighbors(byte color, byte x, byte y) {
   byte count = 0;
 
-  if (CELL(x, y, -1, -1) & CURRENT) count++;
-  if (CELL(x, y, -1,  0) & CURRENT) count++;
-  if (CELL(x, y, -1,  1) & CURRENT) count++;
+  if (CELL_INCR(x, y, -1, -1) & CURRENT(color)) count++;
+  if (CELL_INCR(x, y, -1,  0) & CURRENT(color)) count++;
+  if (CELL_INCR(x, y, -1,  1) & CURRENT(color)) count++;
 
-  if (CELL(x, y, 0, -1) & CURRENT) count++;
-  if (CELL(x, y, 0,  1) & CURRENT) count++;
+  if (CELL_INCR(x, y, 0, -1) & CURRENT(color)) count++;
+  if (CELL_INCR(x, y, 0,  1) & CURRENT(color)) count++;
 
-  if (CELL(x, y, 1, -1) & CURRENT) count++;
-  if (CELL(x, y, 1,  0) & CURRENT) count++;
-  if (CELL(x, y, 1,  1) & CURRENT) count++;
+  if (CELL_INCR(x, y, 1, -1) & CURRENT(color)) count++;
+  if (CELL_INCR(x, y, 1,  0) & CURRENT(color)) count++;
+  if (CELL_INCR(x, y, 1,  1) & CURRENT(color)) count++;
 
   return count;
 }
