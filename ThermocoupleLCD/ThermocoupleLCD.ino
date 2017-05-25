@@ -17,6 +17,7 @@
 #include "Adafruit_MAX31855.h"
 #include "Wire.h"
 #include "SerialCLI.h"
+#include "SPI.h"
 
 //#define ADAFRUIT_LIQUID
 #if ADAFRUIT_LIQUID
@@ -28,8 +29,8 @@
   LiquidTWI lcd(0);
 #endif
 
-int thermoDO = 2;
-int thermoCS = 3;
+int thermoDO = 3;
+int thermoCS = 5;
 int thermoCLK = 6;
 
 int trigLED = 9;
