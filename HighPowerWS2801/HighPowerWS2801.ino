@@ -1,11 +1,7 @@
 #include "FastLED.h"
 
-// How many leds in your strip?
-#define NUM_LEDS 1
+#define NUM_LEDS 3
 
-// For led chips like Neopixels, which have a data line, ground, and power, you just
-// need to define DATA_PIN.  For led chipsets that are SPI based (four wires - data, clock,
-// ground, and power), like the LPD8806 define both DATA_PIN and CLOCK_PIN
 #define DATA_PIN 8
 #define CLOCK_PIN 12
 
@@ -13,7 +9,7 @@
 #define DEBUG_GREEN 13
 #define DEBUG_BLUE 10
 
-#define DELAY 2000
+#define DELAY 200
 
 // Define the array of leds
 CRGB leds[NUM_LEDS];
@@ -21,47 +17,52 @@ CRGB leds[NUM_LEDS];
 void setup() { 
   Serial.begin(9600);
 
-  //FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
   FastLED.addLeds<WS2801, DATA_PIN, CLOCK_PIN, BGR>(leds, NUM_LEDS);
-  FastLED.setBrightness(64);
+  FastLED.setBrightness(128);
 
   pinMode(DEBUG_RED, OUTPUT);
 }
 
-void loop() { 
-  // Turn the LED on, then pause
-  Serial.println("RED");
-  leds[0] = CRGB::Red;
-  FastLED.show();
-  digitalWrite(DEBUG_RED, HIGH);
-  delay(DELAY);
-  digitalWrite(DEBUG_RED, LOW);
-  
-  // Now turn the LED off, then pause
-  Serial.println("GREEN");
-  leds[0] = CRGB::Green;
-  FastLED.show();
-  digitalWrite(DEBUG_GREEN, HIGH);
-  delay(DELAY);
-  digitalWrite(DEBUG_GREEN, LOW);
+#if 1
+// Convert RGB leds to single value ones
+void light_led(uint16_t led, uint8_t value) {
+  uint16_t i = led / (uint16_t)3;
 
-  Serial.println("BLUE");
-  leds[0] = CRGB::Blue;
-  FastLED.show();
-  digitalWrite(DEBUG_BLUE, HIGH);
-  delay(DELAY);
-  digitalWrite(DEBUG_BLUE, LOW);
-
-#if 0
-  Serial.println("WHITE");
-  leds[0] = CRGB::White;
-  FastLED.show();
-  digitalWrite(DEBUG_RED, HIGH);
-  digitalWrite(DEBUG_GREEN, HIGH);
-  digitalWrite(DEBUG_BLUE, HIGH);
-  delay(DELAY);
-  digitalWrite(DEBUG_RED, LOW);
-  digitalWrite(DEBUG_GREEN, LOW);
-  digitalWrite(DEBUG_BLUE, LOW);
+  switch (led % 3) {
+    default: leds[i].r = value; break;
+    case 1: leds[i].g = value; break;
+    case 2: leds[i].b = value; break;
+  }
+}
 #endif
+
+
+void loop() {
+
+  for (int led = 0; led < NUM_LEDS; led++) {
+    // Turn the LED on, then pause
+    Serial.println("RED");
+    leds[led] = CRGB::Red;
+    FastLED.show();
+    digitalWrite(DEBUG_RED, HIGH);
+    delay(DELAY);
+    digitalWrite(DEBUG_RED, LOW);
+
+    // Now turn the LED off, then pause
+    Serial.println("GREEN");
+    leds[led] = CRGB::Green;
+    FastLED.show();
+    digitalWrite(DEBUG_GREEN, HIGH);
+    delay(DELAY);
+    digitalWrite(DEBUG_GREEN, LOW);
+
+    Serial.println("BLUE");
+    leds[led] = CRGB::Blue;
+    FastLED.show();
+    digitalWrite(DEBUG_BLUE, HIGH);
+    delay(DELAY);
+    digitalWrite(DEBUG_BLUE, LOW);
+
+    leds[led] = 0;
+  }
 }
