@@ -1,9 +1,9 @@
 #include "FastLED.h"
 
-#define NUM_LEDS 3
+#define NUM_LEDS 4
 
-#define DATA_PIN 8
-#define CLOCK_PIN 12
+#define DATA_PIN 12
+#define CLOCK_PIN 8
 
 #define DEBUG_RED 11
 #define DEBUG_GREEN 13
